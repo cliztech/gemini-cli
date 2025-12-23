@@ -101,6 +101,15 @@ describe('Core System Prompt (prompts.ts)', () => {
     expect(prompt).toContain('```');
   });
 
+  it('should NOT include skill guidance or available_skills when NO skills are provided', async () => {
+    vi.mocked(mockConfig.getSkillManager().getSkills).mockReturnValue([]);
+    const prompt = await getCoreSystemPrompt(mockConfig);
+
+    expect(prompt).not.toContain('# Available Agent Skills');
+    expect(prompt).not.toContain('Skill Guidance');
+    expect(prompt).not.toContain('activate_skill');
+  });
+
   it('should use chatty system prompt for preview model', async () => {
     vi.mocked(mockConfig.getActiveModel).mockReturnValue(PREVIEW_GEMINI_MODEL);
     const prompt = await getCoreSystemPrompt(mockConfig);

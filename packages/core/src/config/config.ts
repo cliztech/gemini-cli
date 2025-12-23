@@ -733,9 +733,11 @@ export class Config {
     await this.getSkillManager().discoverSkills(skillPaths);
 
     // Re-register ActivateSkillTool to update its schema with the discovered skill enums
-    this.getToolRegistry().registerTool(
-      new ActivateSkillTool(this, this.messageBus),
-    );
+    if (this.getSkillManager().getSkills().length > 0) {
+      this.getToolRegistry().registerTool(
+        new ActivateSkillTool(this, this.messageBus),
+      );
+    }
 
     // Initialize hook system if enabled
     if (this.enableHooks) {
@@ -1698,7 +1700,9 @@ export class Config {
     registerCoreTool(WebFetchTool, this);
     registerCoreTool(ShellTool, this);
     registerCoreTool(MemoryTool);
-    registerCoreTool(ActivateSkillTool, this, this.messageBus);
+    if (this.getSkillManager().getSkills().length > 0) {
+      registerCoreTool(ActivateSkillTool, this, this.messageBus);
+    }
     registerCoreTool(WebSearchTool, this);
     if (this.getUseWriteTodos()) {
       registerCoreTool(WriteTodosTool, this);
