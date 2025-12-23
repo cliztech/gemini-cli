@@ -14,7 +14,10 @@ import {
   TOOL_STATUS,
 } from '../../constants.js';
 import { theme } from '../../semantic-colors.js';
-import { SHELL_TOOL_NAME } from '@google/gemini-cli-core';
+import {
+  ACTIVATE_SKILL_TOOL_NAME,
+  SHELL_TOOL_NAME,
+} from '@google/gemini-cli-core';
 
 export const STATUS_INDICATOR_WIDTH = 3;
 
@@ -33,7 +36,9 @@ export const ToolStatusIndicator: React.FC<ToolStatusIndicatorProps> = ({
     name === SHELL_COMMAND_NAME ||
     name === SHELL_NAME ||
     name === SHELL_TOOL_NAME;
+  const isSkill = name === ACTIVATE_SKILL_TOOL_NAME || name === 'ActivateSkill';
   const statusColor = isShell ? theme.ui.symbol : theme.status.warning;
+  const skillIconColor = theme.text.accent;
 
   return (
     <Box minWidth={STATUS_INDICATOR_WIDTH}>
@@ -47,8 +52,11 @@ export const ToolStatusIndicator: React.FC<ToolStatusIndicatorProps> = ({
         />
       )}
       {status === ToolCallStatus.Success && (
-        <Text color={theme.status.success} aria-label={'Success:'}>
-          {TOOL_STATUS.SUCCESS}
+        <Text
+          color={isSkill ? skillIconColor : theme.status.success}
+          aria-label={'Success:'}
+        >
+          {isSkill ? '🌟' : TOOL_STATUS.SUCCESS}
         </Text>
       )}
       {status === ToolCallStatus.Confirming && (
@@ -83,7 +91,11 @@ export const ToolInfo: React.FC<ToolInfoProps> = ({
   status,
   emphasis,
 }) => {
+  const isSkill = name === ACTIVATE_SKILL_TOOL_NAME || name === 'ActivateSkill';
   const nameColor = React.useMemo<string>(() => {
+    if (isSkill) {
+      return theme.text.accent;
+    }
     switch (emphasis) {
       case 'high':
         return theme.text.primary;
@@ -96,7 +108,7 @@ export const ToolInfo: React.FC<ToolInfoProps> = ({
         return exhaustiveCheck;
       }
     }
-  }, [emphasis]);
+  }, [emphasis, isSkill]);
   return (
     <Box overflow="hidden" height={1} flexGrow={1} flexShrink={1}>
       <Text strikethrough={status === ToolCallStatus.Canceled} wrap="truncate">

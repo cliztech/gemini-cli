@@ -1,0 +1,145 @@
+/**
+ * @license
+ * Copyright 2025 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { SkillDiscoveryService } from './skillDiscoveryService.js';
+
+describe('SkillDiscoveryService', () => {
+  let testRootDir: string;
+
+  beforeEach(async () => {
+    testRootDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'skill-discovery-test-'),
+    );
+  });
+
+  afterEach(async () => {
+    await fs.rm(testRootDir, { recursive: true, force: true });
+  });
+
+  it('should discover skills with valid SKILL.md and frontmatter', async () => {
+    const skillDir = path.join(testRootDir, 'my-skill');
+    await fs.mkdir(skillDir, { recursive: true });
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    await fs.writeFile(
+      skillFile,
+      `---
+name: my-skill
+description: A test skill
+---
+# Instructions
+Do something.
+`,
+    );
+
+    const service = new SkillDiscoveryService();
+    const skills = await service.discoverSkills([testRootDir]);
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0]).toEqual({
+      name: 'my-skill',
+      description: 'A test skill',
+      location: skillFile,
+    });
+  });
+
+  it('should ignore directories without SKILL.md', async () => {
+    const notASkillDir = path.join(testRootDir, 'not-a-skill');
+    await fs.mkdir(notASkillDir, { recursive: true });
+
+    const service = new SkillDiscoveryService();
+    const skills = await service.discoverSkills([testRootDir]);
+
+    expect(skills).toHaveLength(0);
+  });
+
+  it('should ignore SKILL.md without valid frontmatter', async () => {
+    const skillDir = path.join(testRootDir, 'invalid-skill');
+    await fs.mkdir(skillDir, { recursive: true });
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    await fs.writeFile(skillFile, '# No frontmatter here');
+
+    const service = new SkillDiscoveryService();
+    const skills = await service.discoverSkills([testRootDir]);
+
+    expect(skills).toHaveLength(0);
+  });
+
+  it('should ignore SKILL.md with missing required frontmatter fields', async () => {
+    const skillDir = path.join(testRootDir, 'missing-fields');
+    await fs.mkdir(skillDir, { recursive: true });
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    await fs.writeFile(
+      skillFile,
+      `---
+name: missing-fields
+---
+`,
+    );
+
+    const service = new SkillDiscoveryService();
+    const skills = await service.discoverSkills([testRootDir]);
+
+    expect(skills).toHaveLength(0);
+  });
+
+  it('should handle multiple search paths', async () => {
+    const path1 = path.join(testRootDir, 'path1');
+    const path2 = path.join(testRootDir, 'path2');
+    await fs.mkdir(path1, { recursive: true });
+    await fs.mkdir(path2, { recursive: true });
+
+    const skill1Dir = path.join(path1, 'skill1');
+    await fs.mkdir(skill1Dir, { recursive: true });
+    await fs.writeFile(
+      path.join(skill1Dir, 'SKILL.md'),
+      `---
+name: skill1
+description: Skill 1
+---
+`,
+    );
+
+    const skill2Dir = path.join(path2, 'skill2');
+    await fs.mkdir(skill2Dir, { recursive: true });
+    await fs.writeFile(
+      path.join(skill2Dir, 'SKILL.md'),
+      `---
+name: skill2
+description: Skill 2
+---
+`,
+    );
+
+    const service = new SkillDiscoveryService();
+    const skills = await service.discoverSkills([path1, path2]);
+
+    expect(skills).toHaveLength(2);
+    expect(skills.map((s) => s.name).sort()).toEqual(['skill1', 'skill2']);
+  });
+
+  it('should de-duplicate skills by location', async () => {
+    const skillDir = path.join(testRootDir, 'skill');
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillDir, 'SKILL.md'),
+      `---
+name: skill
+description: Skill
+---
+`,
+    );
+
+    const service = new SkillDiscoveryService();
+    // Use the same path twice
+    const skills = await service.discoverSkills([testRootDir, testRootDir]);
+
+    expect(skills).toHaveLength(1);
+  });
+});

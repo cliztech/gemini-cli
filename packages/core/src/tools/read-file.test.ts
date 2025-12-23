@@ -44,6 +44,7 @@ describe('ReadFileTool', () => {
       storage: {
         getProjectTempDir: () => path.join(tempRootDir, '.temp'),
       },
+      getSkills: () => [],
       isInteractive: () => false,
     } as unknown as Config;
     tool = new ReadFileTool(mockConfigInstance);
@@ -92,6 +93,44 @@ describe('ReadFileTool', () => {
         file_path: path.join(tempDir, 'temp-file.txt'),
       };
       const result = tool.build(params);
+      expect(typeof result).not.toBe('string');
+    });
+
+    it('should allow access to discovered skill files outside workspace', async () => {
+      const skillFile = path.resolve(
+        tempRootDir,
+        '..',
+        'skill-outside',
+        'SKILL.md',
+      );
+      // Create a mock config with a skill outside the workspace
+      const mockConfigWithSkill = {
+        getFileService: () => new FileDiscoveryService(tempRootDir),
+        getFileSystemService: () => new StandardFileSystemService(),
+        getTargetDir: () => tempRootDir,
+        getWorkspaceContext: () => createMockWorkspaceContext(tempRootDir),
+        getFileFilteringOptions: () => ({
+          respectGitIgnore: true,
+          respectGeminiIgnore: true,
+        }),
+        storage: {
+          getProjectTempDir: () => path.join(tempRootDir, '.temp'),
+        },
+        getSkills: () => [
+          {
+            name: 'outside-skill',
+            description: 'A skill outside',
+            location: skillFile,
+          },
+        ],
+        isInteractive: () => false,
+      } as unknown as Config;
+      const skillTool = new ReadFileTool(mockConfigWithSkill);
+
+      const params: ReadFileToolParams = {
+        file_path: skillFile,
+      };
+      const result = skillTool.build(params);
       expect(typeof result).not.toBe('string');
     });
 
@@ -437,6 +476,7 @@ describe('ReadFileTool', () => {
           storage: {
             getProjectTempDir: () => path.join(tempRootDir, '.temp'),
           },
+          getSkills: () => [],
         } as unknown as Config;
         tool = new ReadFileTool(mockConfigInstance);
       });

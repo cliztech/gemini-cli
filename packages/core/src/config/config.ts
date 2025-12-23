@@ -5,6 +5,7 @@
  */
 
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { inspect } from 'node:util';
 import process from 'node:process';
 import type {
@@ -22,6 +23,7 @@ import { ToolRegistry } from '../tools/tool-registry.js';
 import { LSTool } from '../tools/ls.js';
 import { ReadFileTool } from '../tools/read-file.js';
 import { GrepTool } from '../tools/grep.js';
+import { ActivateSkillTool } from '../tools/activate-skill.js';
 import { canUseRipgrep, RipGrepTool } from '../tools/ripGrep.js';
 import { GlobTool } from '../tools/glob.js';
 import { EditTool } from '../tools/edit.js';
@@ -36,6 +38,11 @@ import { BaseLlmClient } from '../core/baseLlmClient.js';
 import type { HookDefinition, HookEventName } from '../hooks/types.js';
 import { FileDiscoveryService } from '../services/fileDiscoveryService.js';
 import { GitService } from '../services/gitService.js';
+import {
+  SkillDiscoveryService,
+  type SkillMetadata,
+  type SkillContent,
+} from '../services/skillDiscoveryService.js';
 import type { TelemetryTarget } from '../telemetry/index.js';
 import {
   initializeTelemetry,
@@ -388,6 +395,9 @@ export class Config {
     disableFuzzySearch: boolean;
   };
   private fileDiscoveryService: FileDiscoveryService | null = null;
+  private skillDiscoveryService: SkillDiscoveryService | null = null;
+  private skills: SkillMetadata[] = [];
+  private activeSkillNames: Set<string> = new Set();
   private gitService: GitService | undefined = undefined;
   private readonly checkpointing: boolean;
   private readonly proxy: string | undefined;
@@ -696,6 +706,14 @@ export class Config {
     }
     this.promptRegistry = new PromptRegistry();
     this.resourceRegistry = new ResourceRegistry();
+
+    // Initialize SkillDiscoveryService and discover skills
+    this.skillDiscoveryService = new SkillDiscoveryService();
+    const skillPaths = [
+      path.join(this.cwd, '.gemini', 'skills'),
+      path.join(os.homedir(), '.gemini', 'skills'),
+    ];
+    this.skills = await this.skillDiscoveryService.discoverSkills(skillPaths);
 
     this.agentRegistry = new AgentRegistry(this);
     await this.agentRegistry.initialize();
@@ -1291,6 +1309,26 @@ export class Config {
     return this.cwd;
   }
 
+  getSkills(): SkillMetadata[] {
+    return this.skills;
+  }
+
+  async getSkillContent(name: string): Promise<SkillContent | null> {
+    const skill = this.skills.find((s) => s.name === name);
+    if (!skill || !this.skillDiscoveryService) {
+      return null;
+    }
+    return this.skillDiscoveryService.getSkillContent(skill.location);
+  }
+
+  getActiveSkillNames(): string[] {
+    return Array.from(this.activeSkillNames);
+  }
+
+  activateSkill(name: string): void {
+    this.activeSkillNames.add(name);
+  }
+
   getBugCommand(): BugCommandSettings | undefined {
     return this.bugCommand;
   }
@@ -1668,6 +1706,7 @@ export class Config {
     registerCoreTool(WebFetchTool, this);
     registerCoreTool(ShellTool, this);
     registerCoreTool(MemoryTool);
+    registerCoreTool(ActivateSkillTool, this);
     registerCoreTool(WebSearchTool, this);
     if (this.getUseWriteTodos()) {
       registerCoreTool(WriteTodosTool, this);

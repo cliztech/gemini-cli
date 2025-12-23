@@ -103,7 +103,9 @@ vi.mock('./turn', async (importOriginal) => {
 });
 
 vi.mock('../config/config.js');
-vi.mock('./prompts');
+vi.mock('./prompts', () => ({
+  getCoreSystemPrompt: vi.fn().mockResolvedValue('Mock System Prompt'),
+}));
 vi.mock('../utils/getFolderStructure', () => ({
   getFolderStructure: vi.fn().mockResolvedValue('Mock Folder Structure'),
 }));
@@ -2588,7 +2590,10 @@ ${JSON.stringify(
           model: 'test-model',
           config: {
             abortSignal,
-            systemInstruction: getCoreSystemPrompt({} as unknown as Config, ''),
+            systemInstruction: await getCoreSystemPrompt(
+              {} as unknown as Config,
+              '',
+            ),
             temperature: 0,
             topP: 1,
           },

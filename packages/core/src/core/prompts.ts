@@ -17,6 +17,7 @@ import {
   WRITE_FILE_TOOL_NAME,
   WRITE_TODOS_TOOL_NAME,
   DELEGATE_TO_AGENT_TOOL_NAME,
+  ACTIVATE_SKILL_TOOL_NAME,
 } from '../tools/tool-names.js';
 import process from 'node:process';
 import { isGitRepository } from '../utils/gitUtils.js';
@@ -77,10 +78,10 @@ export function resolvePathFromEnv(envVar?: string): {
   };
 }
 
-export function getCoreSystemPrompt(
+export async function getCoreSystemPrompt(
   config: Config,
   userMemory?: string,
-): string {
+): Promise<string> {
   // A flag to indicate whether the system prompt override is active.
   let systemMdEnabled = false;
   // The default path for the system prompt file. This can be overridden.
@@ -130,6 +131,49 @@ export function getCoreSystemPrompt(
 
   const interactiveMode = config.isInteractiveShellEnabled();
 
+  const skills = config.getSkills();
+  let skillsPrompt = '';
+  if (skills.length > 0) {
+    skillsPrompt = `
+# Available Agent Skills
+
+You have access to the following specialized skills. To activate a skill and follow its detailed instructions, you MUST first call the \`${ACTIVATE_SKILL_TOOL_NAME}\` tool with the skill's name.
+
+<available_skills>
+${skills
+  .map(
+    (skill) => `  <skill>
+    <name>${skill.name}</name>
+    <description>${skill.description}</description>
+  </skill>`,
+  )
+  .join('\n')}
+</available_skills>
+`;
+  }
+
+  const activeSkillNames = config.getActiveSkillNames();
+  let activeSkillsPrompt = '';
+  if (activeSkillNames.length > 0) {
+    const activeSkillContents = await Promise.all(
+      activeSkillNames.map((name) => config.getSkillContent(name)),
+    );
+
+    activeSkillsPrompt = `
+# Active Skill Instructions
+
+The following skills are currently active. You MUST follow these instructions strictly:
+
+${activeSkillContents
+  .filter((c) => c !== null)
+  .map(
+    (content) => `## Skill: ${content.name}
+${content.body}`,
+  )
+  .join('\n\n')}
+`;
+  }
+
   let basePrompt: string;
   if (systemMdEnabled) {
     basePrompt = fs.readFileSync(systemMdPath, 'utf8');
@@ -154,7 +198,7 @@ export function getCoreSystemPrompt(
           : ''
       }
 
-${config.getAgentRegistry().getDirectoryContext()}`,
+${config.getAgentRegistry().getDirectoryContext()}${skillsPrompt}${activeSkillsPrompt}`,
       primaryWorkflows_prefix: `
 # Primary Workflows
 
