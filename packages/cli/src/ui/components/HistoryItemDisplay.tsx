@@ -156,7 +156,6 @@ export const HistoryItemDisplay: React.FC<HistoryItemDisplayProps> = ({
       )}
       {itemForDisplay.type === 'skills_list' && (
         <SkillsList
-          terminalWidth={terminalWidth}
           skills={itemForDisplay.skills}
           showDescriptions={itemForDisplay.showDescriptions}
         />
