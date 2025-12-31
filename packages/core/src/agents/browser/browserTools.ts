@@ -441,13 +441,22 @@ export class BrowserTools {
     return { output: 'Pressed PageUp', url: page.url() };
   }
 
-  async takeSnapshot(verbose: boolean = false): Promise<ToolResult> {
+  /**
+   * Helper to call MCP tool and standardize response.
+   * Strips "## Latest page snapshot" if stripSnapshot is true.
+   */
+  private async callMcpTool(
+    name: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    args: Record<string, any> = {},
+    stripSnapshot: boolean = true,
+  ): Promise<ToolResult> {
     const client = await this.browserManager.getMcpClient();
-    const result = await client.callTool('take_snapshot', { verbose });
+    const result = await client.callTool(name, args);
 
-    // Handle standard MCP result content
     const content = result.content;
     let output = '';
+
     if (content && Array.isArray(content)) {
       output = content
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -456,54 +465,79 @@ export class BrowserTools {
         .map((item: any) => item.text)
         .join('');
     }
+
+    // Standardize: Strip the forced snapshot if requested
+    // "## Latest page snapshot" is the standard separator in chrome-devtools-mcp
+    if (stripSnapshot && output.includes('## Latest page snapshot')) {
+      output = output.split('## Latest page snapshot')[0].trim();
+    }
+
     return { output };
   }
 
+  async navigate(url: string): Promise<ToolResult> {
+    return this.callMcpTool('navigate_page', { url });
+  }
+
+  async click(uid: string, dblClick: boolean = false): Promise<ToolResult> {
+    return this.callMcpTool('click', { uid, dblClick }); // Strip snapshot, agent loop handles it
+  }
+
+  async hover(uid: string): Promise<ToolResult> {
+    return this.callMcpTool('hover', { uid }); // Strip snapshot
+  }
+
+  async fill(uid: string, value: string): Promise<ToolResult> {
+    return this.callMcpTool('fill', { uid, value }); // Strip snapshot
+  }
+
+  async fillForm(
+    elements: Array<{ uid: string; value: string }>,
+  ): Promise<ToolResult> {
+    return this.callMcpTool('fill_form', { elements }); // Strip snapshot
+  }
+
+  async uploadFile(uid: string, filePath: string): Promise<ToolResult> {
+    return this.callMcpTool('upload_file', { uid, filePath });
+  }
+
+  async getElementText(uid: string): Promise<ToolResult> {
+    return this.callMcpTool('get_element_text', { uid });
+  }
+
+  async takeSnapshot(verbose: boolean = false): Promise<ToolResult> {
+    // For explicit take_snapshot, we obviously want the snapshot!
+    return this.callMcpTool('take_snapshot', { verbose }, false);
+  }
+
   async waitFor(text: string): Promise<ToolResult> {
-    const client = await this.browserManager.getMcpClient();
-    await client.callTool('wait_for', { text });
-    return { output: `Waited for text "${text}"` };
+    return this.callMcpTool('wait_for', { text });
   }
 
   async handleDialog(
     action: 'accept' | 'dismiss',
     promptText?: string,
   ): Promise<ToolResult> {
-    const client = await this.browserManager.getMcpClient();
-    await client.callTool('handle_dialog', { action, promptText });
-    return { output: `Dialog ${action}ed` };
+    return this.callMcpTool('handle_dialog', { action, promptText });
   }
 
   async evaluateScript(script: string): Promise<ToolResult> {
-    const page = await this.browserManager.getPage();
-    try {
-      // Wrap script in a function call to handle both expressions and statements
-      const wrappedScript = `(function() { return ${script}; })()`;
-      const result = await page.evaluate(wrappedScript);
-
-      let output = '';
-      if (typeof result === 'object') {
-        output = JSON.stringify(result);
-      } else {
-        output = String(result);
-      }
-      return { output };
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      return { error: `Script execution failed: ${message}` };
-    }
+    return this.callMcpTool('evaluate_script', {
+      function: `() => { return ${script} }`, // Wrap as expected by the tool
+    });
   }
 
   async pressKey(key: string): Promise<ToolResult> {
-    const client = await this.browserManager.getMcpClient();
-    await client.callTool('press_key', { key });
-    return { output: `Pressed key "${key}"` };
+    // Strip snapshot for typing to prevent sluggishness (Optimization)
+    return this.callMcpTool('press_key', { key }, true);
   }
 
   async drag(fromUid: string, toUid: string): Promise<ToolResult> {
-    const client = await this.browserManager.getMcpClient();
-    await client.callTool('drag', { from_uid: fromUid, to_uid: toUid });
-    return { output: 'Dragged element' };
+    return this.callMcpTool('drag', { from_uid: fromUid, to_uid: toUid });
+  }
+
+  async closePage(): Promise<ToolResult> {
+    return this.callMcpTool('close_page', {});
   }
 
   // Deprecated: Use pressKey if possible, but keeping for coordinate-based/legacy support or where UID isn't known

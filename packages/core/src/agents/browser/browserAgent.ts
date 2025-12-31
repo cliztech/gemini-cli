@@ -406,16 +406,16 @@ export class BrowserAgent {
       this.config.browserAgentSettings?.model ?? this.config.getActiveModel();
 
     const systemInstruction = `You are an expert browser automation agent (Orchestrator). Your goal is to completely fulfill the user's request.
-
-IMPORTANT: You will receive an accessibility tree snapshot showing elements with uid values (e.g., uid=87_4 button "Login"). 
-Use these uid values directly with your tools:
-- click(uid="87_4") to click the Login button
-- fill(uid="87_2", value="john") to fill a text field
-- fill_form(elements=[{uid: "87_2", value: "john"}, {uid: "87_3", value: "pass"}]) to fill multiple fields at once
-
-For complex visual interactions (coordinate-based clicks, dragging) OR when you need to identify elements by visual attributes not present in the AX tree (e.g., "click the yellow button", "find the red error message"), use delegate_to_visual_agent with a clear instruction.
-
-CRITICAL: When you have fully completed the user's task, you MUST call the complete_task tool with a summary of what you accomplished. Do NOT just return text - you must explicitly call complete_task to exit the loop.`;
+ 
+ IMPORTANT: You will receive a fresh accessibility tree snapshot at the start of every turn showing elements with uid values (e.g., uid=87_4 button "Login"). 
+ Use these uid values directly with your tools:
+ - click(uid="87_4") to click the Login button
+ - fill(uid="87_2", value="john") to fill a text field
+ - fill_form(elements=[{uid: "87_2", value: "john"}, {uid: "87_3", value: "pass"}]) to fill multiple fields at once
+ 
+ For complex visual interactions (coordinate-based clicks, dragging) OR when you need to identify elements by visual attributes not present in the AX tree (e.g., "click the yellow button", "find the red error message"), use delegate_to_visual_agent with a clear instruction.
+ 
+ CRITICAL: When you have fully completed the user's task, you MUST call the complete_task tool with a summary of what you accomplished. Do NOT just return text - you must explicitly call complete_task to exit the loop.`;
 
     // Initialize GeminiChat
     const chat = new GeminiChat(this.config, systemInstruction, semanticTools);
@@ -456,11 +456,6 @@ CRITICAL: When you have fully completed the user's task, you MUST call the compl
     let taskCompleted = false; // Track if complete_task was called
     let taskSummary = ''; // Store the summary from complete_task
 
-    // State carry-over to prevent stale element errors.
-    // Semantic tools (click, fill, etc.) return a snapshot of the NEW state.
-    // We must capture this and use it for the next turn instead of calling take_snapshot again.
-    let nextTurnState: string | null = null;
-
     while (iterationCount < MAX_ITERATIONS) {
       // Check for abort (following local-executor pattern)
       if (signal.aborted) {
@@ -470,43 +465,40 @@ CRITICAL: When you have fully completed the user's task, you MUST call the compl
       }
 
       // Capture State
+      // Capture State
+      // Manual Strategy:
+      // We unconditionally capture state at the start of every turn.
+      // This ensures the model always has the latest UIDs and reduces complexity.
       let domSnapshot = '';
 
-      if (nextTurnState) {
-        status = 'Using state from previous tool response...';
-        debugLogger.log(status);
-        domSnapshot = nextTurnState;
-        nextTurnState = null; // Consumed
-      } else {
-        status = 'Capturing state...';
-        debugLogger.log(status);
+      status = 'Capturing state...';
+      debugLogger.log(status);
 
-        try {
-          const client = await this.browserManager.getMcpClient();
+      try {
+        const client = await this.browserManager.getMcpClient();
 
-          // 1. DOM Snapshot (Semantic Agent uses this)
-          const snapResult = await client.callTool('take_snapshot', {
-            verbose: false,
-          });
-          const snapContent = snapResult.content;
-          if (snapContent && Array.isArray(snapContent)) {
-            domSnapshot = snapContent
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              .filter((p: any) => p.type === 'text')
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              .map((p: any) => p.text || '')
-              .join('');
-          }
-        } catch (stateError) {
-          debugLogger.log(`Warning: State capture failed: ${stateError}`);
+        // 1. DOM Snapshot (Semantic Agent uses this)
+        const snapResult = await client.callTool('take_snapshot', {
+          verbose: false,
+        });
+        const snapContent = snapResult.content;
+        if (snapContent && Array.isArray(snapContent)) {
+          domSnapshot = snapContent
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .filter((p: any) => p.type === 'text')
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((p: any) => p.text || '')
+            .join('');
         }
+      } catch (stateError) {
+        debugLogger.log(`Warning: State capture failed: ${stateError}`);
+      }
 
-        // Check if cancelled after state capture
-        if (signal.aborted) {
-          if (printOutput) printOutput('⚠️  Browser task cancelled');
-          debugLogger.log('Task cancelled during state capture');
-          break;
-        }
+      // Check if cancelled after state capture
+      if (signal.aborted) {
+        if (printOutput) printOutput('⚠️  Browser task cancelled');
+        debugLogger.log('Task cancelled during state capture');
+        break;
       }
 
       // Add State to Input Parts
@@ -656,152 +648,121 @@ CRITICAL: When you have fully completed the user's task, you MUST call the compl
           if (printOutput)
             printOutput(`🔧 Executing ${fnName}(${JSON.stringify(fnArgs)})`);
 
-          // Helper to process tool response and extract snapshot
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const processToolResponse = (responseContent: any[]) => {
-            let textOutput = '';
-            let foundSnapshot = '';
-
-            for (const item of responseContent) {
-              if (item.type === 'text' && item.text) {
-                if (item.text.includes('## Latest page snapshot')) {
-                  const parts = item.text.split('## Latest page snapshot');
-                  if (parts[0].trim()) textOutput += parts[0].trim() + '\n';
-                  if (parts[1]) foundSnapshot = parts[1].trim();
-                  // Attempt to grab lines starting with uid= from the snapshot part or the whole thing
-                  // The MCP output format is usually:
-                  // ... text ...
-                  // ## Latest page snapshot
-                  // uid=...
-                  // uid=...
-                } else if (item.text.includes('uid=')) {
-                  foundSnapshot += item.text;
-                } else {
-                  textOutput += item.text;
-                }
-              } else if (item.type === 'resource') {
-                textOutput += `[Resource: ${item.resource.uri}]\n`;
-              }
-            }
-            return { text: textOutput.trim(), snapshot: foundSnapshot.trim() };
-          };
-
           let functionResponse;
           try {
-            const client = await this.browserManager.getMcpClient();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            let rawContent: any[] = [];
-
             switch (fnName) {
               case 'navigate':
-                rawContent =
-                  (
-                    await client.callTool(
-                      'navigate_page',
-                      fnArgs as unknown as Record<string, unknown>,
-                    )
-                  ).content || [];
+                functionResponse =
+                  (await this.browserTools.navigate(fnArgs['url'] as string))
+                    .output || '';
                 break;
               case 'click':
-                rawContent =
+                functionResponse =
                   (
-                    await client.callTool(
-                      'click',
-                      fnArgs as unknown as Record<string, unknown>,
+                    await this.browserTools.click(
+                      fnArgs['uid'] as string,
+                      fnArgs['dblClick'] as boolean,
                     )
-                  ).content || [];
+                  ).output || '';
+                break;
+              case 'hover':
+                functionResponse =
+                  (await this.browserTools.hover(fnArgs['uid'] as string))
+                    .output || '';
                 break;
               case 'fill':
-                rawContent =
+                functionResponse =
                   (
-                    await client.callTool(
-                      'fill',
-                      fnArgs as unknown as Record<string, unknown>,
+                    await this.browserTools.fill(
+                      fnArgs['uid'] as string,
+                      fnArgs['value'] as string,
                     )
-                  ).content || [];
+                  ).output || '';
                 break;
               case 'fill_form':
-                rawContent =
+                functionResponse =
                   (
-                    await client.callTool(
-                      'fill_form',
-                      fnArgs as unknown as Record<string, unknown>,
+                    await this.browserTools.fillForm(
+                      fnArgs['elements'] as Array<{
+                        uid: string;
+                        value: string;
+                      }>,
                     )
-                  ).content || [];
+                  ).output || '';
                 break;
               case 'upload_file':
-                rawContent =
+                functionResponse =
                   (
-                    await client.callTool(
-                      'upload_file',
-                      fnArgs as unknown as Record<string, unknown>,
+                    await this.browserTools.uploadFile(
+                      fnArgs['uid'] as string,
+                      fnArgs['filePath'] as string,
                     )
-                  ).content || [];
+                  ).output || '';
                 break;
               case 'get_element_text':
-                rawContent =
+                functionResponse =
                   (
-                    await client.callTool(
-                      'get_element_text',
-                      fnArgs as unknown as Record<string, unknown>,
+                    await this.browserTools.getElementText(
+                      fnArgs['uid'] as string,
                     )
-                  ).content || [];
+                  ).output || '';
                 break;
               case 'wait_for':
-                rawContent =
-                  (
-                    await client.callTool(
-                      'wait_for',
-                      fnArgs as unknown as Record<string, unknown>,
-                    )
-                  ).content || [];
+                functionResponse =
+                  (await this.browserTools.waitFor(fnArgs['text'] as string))
+                    .output || '';
                 break;
               case 'handle_dialog':
-                rawContent =
+                functionResponse =
                   (
-                    await client.callTool(
-                      'handle_dialog',
-                      fnArgs as unknown as Record<string, unknown>,
+                    await this.browserTools.handleDialog(
+                      fnArgs['action'] as 'accept' | 'dismiss',
+                      fnArgs['promptText'] as string,
                     )
-                  ).content || [];
+                  ).output || '';
                 break;
               case 'evaluate_script':
-                rawContent =
+                functionResponse =
                   (
-                    await client.callTool(
-                      'evaluate_script',
-                      fnArgs as unknown as Record<string, unknown>,
+                    await this.browserTools.evaluateScript(
+                      fnArgs['function'] as string,
                     )
-                  ).content || [];
+                  ).output || '';
                 break;
               case 'press_key':
-                rawContent =
-                  (
-                    await client.callTool(
-                      'press_key',
-                      fnArgs as unknown as Record<string, unknown>,
-                    )
-                  ).content || [];
+                functionResponse =
+                  (await this.browserTools.pressKey(fnArgs['key'] as string))
+                    .output || '';
                 break;
               case 'drag':
-                rawContent =
+                functionResponse =
                   (
-                    await client.callTool(
-                      'drag',
-                      fnArgs as unknown as Record<string, unknown>,
+                    await this.browserTools.drag(
+                      fnArgs['from_uid'] as string,
+                      fnArgs['to_uid'] as string,
                     )
-                  ).content || [];
+                  ).output || '';
                 break;
-
               case 'close_page':
-                rawContent =
-                  (
-                    await client.callTool(
-                      'close_page',
-                      fnArgs as unknown as Record<string, unknown>,
-                    )
-                  ).content || [];
+                functionResponse =
+                  (await this.browserTools.closePage()).output || '';
                 break;
+              case 'take_snapshot':
+                functionResponse =
+                  (
+                    await this.browserTools.takeSnapshot(
+                      fnArgs['verbose'] as boolean,
+                    )
+                  ).output || '';
+                break;
+              case 'scroll_document': {
+                const res = await this.browserTools.scrollDocument(
+                  fnArgs['direction'] as 'up' | 'down' | 'left' | 'right',
+                  fnArgs['amount'] as number,
+                );
+                functionResponse = res.output || res.error || '';
+                break;
+              }
 
               case 'complete_task': {
                 taskCompleted = true;
@@ -809,7 +770,6 @@ CRITICAL: When you have fully completed the user's task, you MUST call the compl
                   (fnArgs['summary'] as string) || 'Task completed';
                 taskSummary = summary; // Store summary to return
                 functionResponse = summary;
-                nextTurnState = null;
                 if (printOutput) printOutput(`✅ ${summary}`);
                 break;
               }
@@ -822,61 +782,46 @@ CRITICAL: When you have fully completed the user's task, you MUST call the compl
                   printOutput || (() => {}),
                 );
                 functionResponse = visualRes;
-                nextTurnState = null;
-                break;
-              }
-
-              case 'scroll_document': {
-                const res = await this.browserTools.scrollDocument(
-                  fnArgs['direction'] as 'up' | 'down' | 'left' | 'right',
-                  fnArgs['amount'] as number,
-                );
-                functionResponse = res.output || res.error || '';
-                nextTurnState = null;
                 break;
               }
 
               default:
-                // Handle legacy visual tools or unknown tools
-                functionResponse = `Error: Tool ${fnName} not recognized or supported directly.`;
-            }
-
-            // Post-process for Semantic Tools
-            if (
-              [
-                'navigate',
-                'click',
-                'fill',
-                'fill_form',
-                'get_element_text',
-                'wait_for',
-                'handle_dialog',
-                'press_key',
-                'drag',
-                'close_page',
-              ].includes(fnName)
-            ) {
-              // Extract snapshot
-              const processed = processToolResponse(rawContent);
-              functionResponse = processed.text;
-              if (processed.snapshot) {
-                nextTurnState = processed.snapshot;
-                debugLogger.log(
-                  `Captured state from tool ${fnName} for next turn.`,
-                );
-              } else {
-                nextTurnState = null; // Ensure we refetch if tool didn't return state
-              }
-            } else if (!functionResponse && rawContent.length > 0) {
-              // Fallback for tools that populated rawContent but weren't in the semantic list
-              functionResponse = rawContent
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                .map((p: any) => p.text || '')
-                .join('\n');
+                if (
+                  (semanticTools[0].functionDeclarations || []).some(
+                    (f) => f.name === fnName,
+                  )
+                ) {
+                  // Fallback for any newly added semantic tools not explicitly handled
+                  const client = await this.browserManager.getMcpClient();
+                  const res = await client.callTool(
+                    fnName,
+                    fnArgs as unknown as Record<string, unknown>,
+                  );
+                  functionResponse =
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    res?.content?.map((c: any) => c.text || '').join('\n') ||
+                    '';
+                } else {
+                  // Try browser tools (legacy/visual helpers)
+                  try {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const res = await (this.browserTools as any)[fnName]?.(
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      ...(Object.values(fnArgs) as any[]),
+                    );
+                    if (res) {
+                      functionResponse = res.output || res.error || '';
+                    } else {
+                      functionResponse = `Tool ${fnName} not implemented in agent loop.`;
+                    }
+                  } catch {
+                    functionResponse = `Tool ${fnName} not implemented in agent loop.`;
+                  }
+                }
+                break;
             }
           } catch (error) {
             functionResponse = `Error executing ${fnName}: ${error instanceof Error ? error.message : String(error)}`;
-            nextTurnState = null; // On error, always refetch state
           }
 
           currentInputParts.push({
