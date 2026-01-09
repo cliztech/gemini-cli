@@ -206,6 +206,7 @@ function bufferPaste(keypressHandler: KeypressHandler): KeypressHandler {
         continue;
       }
 
+      debugLogger.log('Bracketed paste started!');
       let buffer = '';
       while (true) {
         const timeoutId = setTimeout(() => bufferer.next(null), PASTE_TIMEOUT);
@@ -213,11 +214,13 @@ function bufferPaste(keypressHandler: KeypressHandler): KeypressHandler {
         clearTimeout(timeoutId);
 
         if (key === null) {
+          debugLogger.log('Bracketed paste timed out!');
           appEvents.emit(AppEvent.PasteTimeout);
           break;
         }
 
         if (key.name === 'paste-end') {
+          debugLogger.log('Bracketed paste ended properly!');
           break;
         }
         buffer += key.sequence;
