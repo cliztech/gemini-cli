@@ -1670,6 +1670,7 @@ describe('InputPrompt', () => {
           mockBuffer.lines = [text];
           mockBuffer.viewportVisualLines = [text];
           mockBuffer.visualCursor = visualCursor as [number, number];
+          props.config.getUseBackgroundColor = () => false;
 
           const { stdout, unmount } = renderWithProviders(
             <InputPrompt {...props} isAlternateBuffer={true} />,
@@ -1727,6 +1728,7 @@ describe('InputPrompt', () => {
           mockBuffer.visualToLogicalMap = visualToLogicalMap as Array<
             [number, number]
           >;
+          props.config.getUseBackgroundColor = () => false;
 
           const { stdout, unmount } = renderWithProviders(
             <InputPrompt {...props} isAlternateBuffer={true} />,
@@ -1751,6 +1753,7 @@ describe('InputPrompt', () => {
           [1, 0],
           [2, 0],
         ];
+        props.config.getUseBackgroundColor = () => false;
 
         const { stdout, unmount } = renderWithProviders(
           <InputPrompt {...props} isAlternateBuffer={true} />,
@@ -1779,10 +1782,11 @@ describe('InputPrompt', () => {
       mockBuffer.visualCursor = [2, 5]; // cursor at the end of "world"
       // Provide a visual-to-logical mapping for each visual line
       mockBuffer.visualToLogicalMap = [
-        [0, 0], // 'hello' starts at col 0 of logical line 0
-        [1, 0], // '' (blank) is logical line 1, col 0
-        [2, 0], // 'world' is logical line 2, col 0
+        [0, 0],
+        [1, 0],
+        [2, 0],
       ];
+      props.config.getUseBackgroundColor = () => false;
 
       const { stdout, unmount } = renderWithProviders(
         <InputPrompt {...props} isAlternateBuffer={true} />,
