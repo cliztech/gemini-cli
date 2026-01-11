@@ -61,7 +61,18 @@ resources.
 - **Scripts**: Use scripts for deterministic tasks or complex logic.
 - **Tone**: Use an imperative tone (e.g., "Analyze the logs").
 
-## Verification
+## Developing and Verifying Scripts
+
+If your skill includes scripts in the `scripts/` directory:
+
+1.  **Isolation**: Test scripts in isolation before integrating them into the
+    skill's instructions.
+2.  **Verification**: After creating or modifying a script, you **MUST** verify
+    it works by executing it directly (e.g., via `run_shell_command`) with
+    representative input.
+3.  **Permissions**: Ensure scripts have the necessary execution permissions.
+
+## Discovery and Reloading
 
 To validate that a skill is correctly discovered and can be activated:
 
