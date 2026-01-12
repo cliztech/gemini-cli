@@ -227,7 +227,7 @@ describe('skillsCommand', () => {
       expect(context.ui.addItem).toHaveBeenCalledWith(
         expect.objectContaining({
           type: MessageType.INFO,
-          text: 'Skill "skill1" disabled by adding it to the disabled list in project (/workspace) settings. Use "/skills reload" for it to take effect.',
+          text: 'Skill "skill1" disabled by adding it to the disabled list in workspace (/workspace) settings. Use "/skills reload" for it to take effect.',
         }),
         expect.any(Number),
       );
@@ -256,7 +256,7 @@ describe('skillsCommand', () => {
       expect(context.ui.addItem).toHaveBeenCalledWith(
         expect.objectContaining({
           type: MessageType.INFO,
-          text: 'Skill "skill1" enabled by removing it from the disabled list in project (/workspace) and user (/user/settings.json) settings. Use "/skills reload" for it to take effect.',
+          text: 'Skill "skill1" enabled by removing it from the disabled list in workspace (/workspace) and user (/user/settings.json) settings. Use "/skills reload" for it to take effect.',
         }),
         expect.any(Number),
       );
@@ -296,7 +296,7 @@ describe('skillsCommand', () => {
       expect(context.ui.addItem).toHaveBeenCalledWith(
         expect.objectContaining({
           type: MessageType.INFO,
-          text: 'Skill "skill1" enabled by removing it from the disabled list in project (/workspace) and user (/user/settings.json) settings. Use "/skills reload" for it to take effect.',
+          text: 'Skill "skill1" enabled by removing it from the disabled list in workspace (/workspace) and user (/user/settings.json) settings. Use "/skills reload" for it to take effect.',
         }),
         expect.any(Number),
       );
